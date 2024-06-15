@@ -394,10 +394,10 @@ def main(
         device_sync(device=device) # MKG
         t = time.perf_counter() - t0
 
-        if not interactive:
-            print(tokenizer.decode(y.tolist()))
-        else:
-            print()
+        # if not interactive:
+        #     print(tokenizer.decode(y.tolist()))
+        # else:
+        #     print()
         tokens_generated = y.size(0) - prompt_length
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
