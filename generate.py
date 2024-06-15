@@ -59,18 +59,20 @@ def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **samp
     logits = model(x, input_pos)
     return sample(logits, **sampling_kwargs)[0]
 
-def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, _length, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     # input_pos: [B, 1]
     assert input_pos.shape[-1] == 1
-    logits = model(x, input_pos)
+    logits = model(x, input_pos, _length)
     return sample(logits, **sampling_kwargs)
 
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
+    _length = 0
     for i in range(num_new_tokens):
+        _length = int(input_pos) + 1
         with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
             next_token, next_prob = decode_one_token(
-                model, cur_token, input_pos, **sampling_kwargs
+                model, cur_token, input_pos, _length, **sampling_kwargs
             )
             input_pos += 1
             new_tokens.append(next_token.clone())
