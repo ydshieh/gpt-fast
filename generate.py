@@ -56,7 +56,8 @@ def sample(logits, temperature: float = 1.0, top_k: Optional[int] = None):
 
 def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> torch.Tensor:
     # input_pos: [B, S]
-    logits = model(x, input_pos)
+    _length = int(input_pos[-1]) + 1
+    logits = model(x, input_pos, _length)
     return sample(logits, **sampling_kwargs)[0]
 
 def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, _length, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
