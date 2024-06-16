@@ -336,7 +336,7 @@ def main(
         'tokens_per_sec': [],
         'accept_counts': [],
     }
-    start = -1 if compile else 0
+    start = -2 if compile else 0
 
     for i in range(start, num_samples):
         device_sync(device=device) # MKG
@@ -383,8 +383,11 @@ def main(
                 top_k=top_k,
             )
             aggregate_metrics['accept_counts'].append(metrics['accept_counts'])
+        if i == -2:
+            print(f"Compilation time (1st time): {time.perf_counter() - t0:.2f} seconds")
+            continue
         if i == -1:
-            print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+            print(f"Compilation time (2nd time): {time.perf_counter() - t0:.2f} seconds")
             continue
         if hasattr(prof, "export_chrome_trace"):
             if use_tp:
