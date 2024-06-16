@@ -80,7 +80,7 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
 
         _length = int(input_pos) + 1
         if dynamic_length_multiple > 0:
-            _length = (_length // dynamic_length_multiple + int(_length % dynamic_length_multiple)) * dynamic_length_multiple
+            _length = (_length // dynamic_length_multiple + int(_length % dynamic_length_multiple > 0)) * dynamic_length_multiple
 
         next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, _length, **sampling_kwargs
