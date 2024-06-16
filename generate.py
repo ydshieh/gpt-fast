@@ -37,7 +37,7 @@ from tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
     q = torch.empty_like(probs_sort).exponential_(1)
-    return torch.argmax(probs_sort / q, dim=-1, keepdim=True).to(dtype=torch.int)
+    return torch.argmax(probs_sort / q, dim=-1, keepdim=True)
 
 def logits_to_probs(logits, temperature: float = 1.0, top_k: Optional[int] = None):
     logits = logits / max(temperature, 1e-5)
@@ -75,6 +75,8 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
         next_token, next_prob = decode_one_token(
             model, cur_token, input_pos, **sampling_kwargs
         )
+        next_token = next_token.to(dtype=torch.int)
+
         input_pos += 1
         new_tokens.append(next_token.clone())
         callback(new_tokens[-1])
@@ -119,7 +121,7 @@ def speculative_decode(
 
     if rejected_locations.shape[0] == 0: # All draft tokens have been accepted
         accept_length = speculate_k + 1
-        last_token = multinomial_sample_one_no_sync(target_probs[-1])
+        last_token = multinomial_sample_one_no_sync(target_probs[-1]).to(dtype=torch.int)
         # fill last token into draft model
         model_forward(
             draft_model,
@@ -134,7 +136,7 @@ def speculative_decode(
         new = q - p
         new = torch.where(new > 0, new, 0.0)
         new = new / new.sum()
-        next_token = multinomial_sample_one_no_sync(new)
+        next_token = multinomial_sample_one_no_sync(new).to(dtype=torch.int)
         return torch.cat([draft_tokens[:accept_length], next_token])
 
 @torch.no_grad()
@@ -177,9 +179,9 @@ def generate(
     seq = empty
     input_pos = torch.arange(0, T, device=device)
 
-    next_token = prefill(model, prompt.view(1, -1), input_pos, **sampling_kwargs).clone()
+    next_token = prefill(model, prompt.view(1, -1), input_pos, **sampling_kwargs).to(dtype=torch.int).clone()
     if is_speculative:
-        prefill(draft_model, prompt.view(1, -1), input_pos, **sampling_kwargs)
+        prefill(draft_model, prompt.view(1, -1), input_pos, **sampling_kwargs).to(dtype=torch.int)
     seq[T] = next_token
 
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
@@ -327,8 +329,8 @@ def main(
             model_forward = torch.compile(model_forward, mode="reduce-overhead", fullgraph=True)
 
         global decode_one_token, prefill
-        # decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
-        model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
+        decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
+        # model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
 
         # Uncomment to squeeze more perf out of prefill
         if compile_prefill:
