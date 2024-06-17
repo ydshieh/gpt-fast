@@ -13,6 +13,10 @@ import torch
 import torch._dynamo.config
 import torch._inductor.config
 
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_math_sdp(True)
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
