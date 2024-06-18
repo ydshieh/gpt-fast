@@ -157,7 +157,9 @@ def generate(
     if interactive:
         max_seq_length = 350
     else:
-        max_seq_length = min(T_new, model.config.block_size)
+        # Comment: Using `min` causes index error if `model.config.block_size < T_new`. It also prevents us from
+        # measuring the performance (speed) for (much) longer sequences.
+        max_seq_length = max(T_new, model.config.block_size)
 
     device, dtype = prompt.device, prompt.dtype
     max_seq_length = max_seq_length + speculate_k + 1 if is_speculative else max_seq_length
