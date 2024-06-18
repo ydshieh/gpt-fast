@@ -142,6 +142,7 @@ def generate(
     model: Transformer,
     prompt: torch.Tensor,
     max_new_tokens: int,
+    num_new_tokens: int,
     *,
     interactive: bool,
     draft_model: Transformer,
@@ -156,13 +157,14 @@ def generate(
     is_speculative = draft_model is not None
     # create an empty tensor of the expected final shape and fill in the current tokens
     T = prompt.size(0)
-    T_new = T + max_new_tokens
+    T_new_max = T + max_new_tokens
+    T_new = T + num_new_tokens
     if interactive:
         max_seq_length = 350
     else:
         # Comment: Using `min` causes index error if `model.config.block_size < T_new`. It also prevents us from
         # measuring the performance (speed) for (much) longer sequences.
-        max_seq_length = max(T_new, model.config.block_size)
+        max_seq_length = max(T_new_max, model.config.block_size)
 
     device, dtype = prompt.device, prompt.dtype
     max_seq_length = max_seq_length + speculate_k + 1 if is_speculative else max_seq_length
@@ -202,7 +204,7 @@ def generate(
             input_pos = input_pos + num_added
             next_token = next_tokens[-1]
     else:
-        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
+        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, num_new_tokens - 1, callback=callback, **sampling_kwargs)
         seq[T + 1:] = torch.cat(generated_tokens)
 
     generate_stats = {
@@ -267,6 +269,7 @@ def main(
     interactive: bool = False,
     num_samples: int = 5,
     max_new_tokens: int = 100,
+    num_new_tokens: int = 100,
     top_k: int = 200,
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
@@ -376,6 +379,7 @@ def main(
                 model,
                 encoded,
                 max_new_tokens,
+                num_new_tokens,
                 draft_model=draft_model,
                 speculate_k=speculate_k,
                 interactive=interactive,
@@ -427,6 +431,7 @@ if __name__ == '__main__':
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
+    parser.add_argument('--num_new_tokens', type=int, default=200, help='Actual number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
@@ -439,7 +444,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
+        args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.num_new_tokens, args.top_k,
         args.temperature, args.checkpoint_path, args.compile, args.compile_prefill, args.profile, args.draft_checkpoint_path,
         args.speculate_k, args.device
     )
