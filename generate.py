@@ -65,13 +65,13 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
     logits = model(x, input_pos)
     return sample(logits, **sampling_kwargs)
 
-def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
+def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, attn_backend=torch.nn.attention.SDPBackend.MATH, **sampling_kwargs):
     new_tokens, new_probs = [], []
     for i in range(num_new_tokens):
         # Comment: To avoid the many `FutureWarning: torch.backends.cuda.sdp_kernel() is deprecated.`
         # There is no difference regarding performance.
         # with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
-        with torch.nn.attention.sdpa_kernel([torch.nn.attention.SDPBackend.MATH]):
+        with torch.nn.attention.sdpa_kernel([attn_backend]):
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
@@ -148,6 +148,7 @@ def generate(
     draft_model: Transformer,
     speculate_k: Optional[int] = 8,
     callback = lambda x: x,
+    attn_backend = torch.nn.attention.SDPBackend.MATH,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -204,7 +205,7 @@ def generate(
             input_pos = input_pos + num_added
             next_token = next_tokens[-1]
     else:
-        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, num_new_tokens - 1, callback=callback, **sampling_kwargs)
+        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, num_new_tokens - 1, callback=callback, attn_backend, **sampling_kwargs)
         seq[T + 1:] = torch.cat(generated_tokens)
 
     generate_stats = {
@@ -279,6 +280,7 @@ def main(
     draft_checkpoint_path: Optional[Path] = None,
     speculate_k: int = 5,
     device=default_device,
+    attn_backend="math",
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
@@ -342,6 +344,13 @@ def main(
     }
     start = -2 if compile else 0
 
+    ATTN_BACKENDS = {
+        "math": torch.nn.attention.SDPBackend.MATH,
+        "mem_efficient": torch.nn.attention.EFFICIENT_ATTENTION,
+        "flash": torch.nn.attention.FLASH_ATTENTION,
+    }
+    attn_backend = ATTN_BACKENDS[attn_backend]
+
     for i in range(start, num_samples):
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
@@ -384,6 +393,7 @@ def main(
                 speculate_k=speculate_k,
                 interactive=interactive,
                 callback=callback,
+                attn_backend=attn_backend,
                 temperature=temperature,
                 top_k=top_k,
             )
@@ -441,10 +451,10 @@ if __name__ == '__main__':
     parser.add_argument('--speculate_k', type=int, default=5, help='Speculative execution depth.')
     parser.add_argument('--draft_checkpoint_path', type=Path, default=None, help='Draft checkpoint path.')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
+    parser.add_argument('--attn_backend', type=str, default="math", help='SDPA attention backend name to use')
 
-    args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.num_new_tokens, args.top_k,
         args.temperature, args.checkpoint_path, args.compile, args.compile_prefill, args.profile, args.draft_checkpoint_path,
-        args.speculate_k, args.device
+        args.speculate_k, args.device, args.attn_backend
     )
