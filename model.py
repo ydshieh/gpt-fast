@@ -72,8 +72,15 @@ class KVCache(nn.Module):
     def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, dtype=torch.bfloat16):
         super().__init__()
         cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
-        self.register_buffer('k_cache', torch.zeros(cache_shape, dtype=dtype))
-        self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=dtype))
+
+        k_cache = torch.zeros(cache_shape, dtype=dtype)
+        v_cache = torch.zeros(cache_shape, dtype=dtype)
+
+        torch._dynamo.mark_static_address(k_cache)
+        torch._dynamo.mark_static_address(v_cache)
+
+        self.register_buffer('k_cache', k_cache)
+        self.register_buffer('v_cache', v_cache)
 
     def update(self, input_pos, k_val, v_val):
         # input_pos: [S], k_val: [B, H, S, D]
@@ -118,8 +125,13 @@ class Transformer(nn.Module):
             b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
 
         # Comment: To avoid error when `max_seq_length > self.config.block_size` (after the change in `generate.py`)
-        self.freqs_cis = precompute_freqs_cis(self.max_seq_length, self.config.dim // self.config.n_head, self.config.rope_base, dtype)
-        self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+        freqs_cis = precompute_freqs_cis(self.max_seq_length, self.config.dim // self.config.n_head, self.config.rope_base, dtype)
+        torch._dynamo.mark_static_address(freqs_cis)
+        self.freqs_cis = freqs_cis
+
+        causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+        torch._dynamo.mark_static_address(causal_mask)
+        self.causal_mask = causal_mask
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
         assert self.freqs_cis is not None, "Caches must be initialized first"
