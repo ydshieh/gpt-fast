@@ -354,6 +354,8 @@ def main(
         if compile_prefill:
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
+    _attn_backend = attn_backend
+
     for num_new_tokens in [1024, 2048, 4096]:
         print("=" * 80)
         print(f"num_new_tokens: {num_new_tokens}")
@@ -369,7 +371,7 @@ def main(
             "mem_efficient": torch.nn.attention.SDPBackend.EFFICIENT_ATTENTION,
             "flash": torch.nn.attention.SDPBackend.FLASH_ATTENTION,
         }
-        attn_backend = ATTN_BACKENDS[attn_backend]
+        attn_backend = ATTN_BACKENDS[_attn_backend]
 
         for i in range(start, num_samples):
             device_sync(device=device) # MKG
