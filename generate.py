@@ -354,102 +354,105 @@ def main(
         if compile_prefill:
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
+    for num_new_tokens in [1024, 2048, 4096]:
+        print("=" * 80)
+        print(f"num_new_tokens: {num_new_tokens}")
 
-    aggregate_metrics = {
-        'tokens_per_sec': [],
-        'accept_counts': [],
-    }
-    start = -2 if compile else 0
+        aggregate_metrics = {
+            'tokens_per_sec': [],
+            'accept_counts': [],
+        }
+        start = -2 if compile else 0
 
-    ATTN_BACKENDS = {
-        "math": torch.nn.attention.SDPBackend.MATH,
-        "mem_efficient": torch.nn.attention.SDPBackend.EFFICIENT_ATTENTION,
-        "flash": torch.nn.attention.SDPBackend.FLASH_ATTENTION,
-    }
-    attn_backend = ATTN_BACKENDS[attn_backend]
+        ATTN_BACKENDS = {
+            "math": torch.nn.attention.SDPBackend.MATH,
+            "mem_efficient": torch.nn.attention.SDPBackend.EFFICIENT_ATTENTION,
+            "flash": torch.nn.attention.SDPBackend.FLASH_ATTENTION,
+        }
+        attn_backend = ATTN_BACKENDS[attn_backend]
 
-    for i in range(start, num_samples):
-        device_sync(device=device) # MKG
-        if i >= 0 and interactive:
-            prompt = input("What is your prompt? ")
-            if is_chat:
-                prompt = f"{B_INST} {prompt.strip()} {E_INST}"
-            encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
+        for i in range(start, num_samples):
+            device_sync(device=device) # MKG
+            if i >= 0 and interactive:
+                prompt = input("What is your prompt? ")
+                if is_chat:
+                    prompt = f"{B_INST} {prompt.strip()} {E_INST}"
+                encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
 
-        if interactive and i >= 0:
-            buffer = []
-            period_id = tokenizer.encode('.')[0]
-            done_generating = False
-            def callback(x):
-                nonlocal done_generating
-                if done_generating:
-                    return
-                buffer.append(tokenizer.decode([period_id] + x.tolist())[1:])
-                if x.item() == tokenizer.eos_id():
-                    done_generating = True
-                if len(buffer) == 4 or done_generating:
-                    print(''.join(buffer), end='', flush=True)
-                    buffer.clear()
-                # print(, end='', flush=True)
-        else:
-            callback = lambda x : x
-        t0 = time.perf_counter()
-        import contextlib
-        if (i != num_samples - 1 or not profile) or (use_tp and rank != 0):
-            prof = contextlib.nullcontext()
-        else:
-            torch.profiler._utils._init_for_cuda_graphs()
-            prof = torch.profiler.profile()
-        with prof:
-            y, metrics = generate(
-                model,
-                encoded,
-                max_new_tokens,
-                num_new_tokens,
-                draft_model=draft_model,
-                speculate_k=speculate_k,
-                interactive=interactive,
-                callback=callback,
-                attn_backend=attn_backend,
-                dynamic=dynamic,
-                dynamic_length_multiple=dynamic_length_multiple,
-                temperature=temperature,
-                top_k=top_k,
-            )
-            aggregate_metrics['accept_counts'].append(metrics['accept_counts'])
-        if i == -2:
-            print(f"Compilation time (1st time): {time.perf_counter() - t0:.2f} seconds")
-            continue
-        if i == -1:
-            print(f"Compilation time (2nd time): {time.perf_counter() - t0:.2f} seconds")
-            continue
-        if hasattr(prof, "export_chrome_trace"):
-            if use_tp:
-                prof.export_chrome_trace(f"{profile}_rank_{rank}.json")
+            if interactive and i >= 0:
+                buffer = []
+                period_id = tokenizer.encode('.')[0]
+                done_generating = False
+                def callback(x):
+                    nonlocal done_generating
+                    if done_generating:
+                        return
+                    buffer.append(tokenizer.decode([period_id] + x.tolist())[1:])
+                    if x.item() == tokenizer.eos_id():
+                        done_generating = True
+                    if len(buffer) == 4 or done_generating:
+                        print(''.join(buffer), end='', flush=True)
+                        buffer.clear()
+                    # print(, end='', flush=True)
             else:
-                prof.export_chrome_trace(f"{profile}.json")
-        device_sync(device=device) # MKG
-        t = time.perf_counter() - t0
+                callback = lambda x : x
+            t0 = time.perf_counter()
+            import contextlib
+            if (i != num_samples - 1 or not profile) or (use_tp and rank != 0):
+                prof = contextlib.nullcontext()
+            else:
+                torch.profiler._utils._init_for_cuda_graphs()
+                prof = torch.profiler.profile()
+            with prof:
+                y, metrics = generate(
+                    model,
+                    encoded,
+                    max_new_tokens,
+                    num_new_tokens,
+                    draft_model=draft_model,
+                    speculate_k=speculate_k,
+                    interactive=interactive,
+                    callback=callback,
+                    attn_backend=attn_backend,
+                    dynamic=dynamic,
+                    dynamic_length_multiple=dynamic_length_multiple,
+                    temperature=temperature,
+                    top_k=top_k,
+                )
+                aggregate_metrics['accept_counts'].append(metrics['accept_counts'])
+            if i == -2:
+                print(f"Compilation time (1st time): {time.perf_counter() - t0:.2f} seconds")
+                continue
+            if i == -1:
+                print(f"Compilation time (2nd time): {time.perf_counter() - t0:.2f} seconds")
+                continue
+            if hasattr(prof, "export_chrome_trace"):
+                if use_tp:
+                    prof.export_chrome_trace(f"{profile}_rank_{rank}.json")
+                else:
+                    prof.export_chrome_trace(f"{profile}.json")
+            device_sync(device=device) # MKG
+            t = time.perf_counter() - t0
 
-        # Comment: Don't print as we generate (very) long outputs and we only focus on the speed.
-        # if not interactive:
-        #     print(tokenizer.decode(y.tolist()))
-        # else:
-        #     print()
-        tokens_generated = y.size(0) - prompt_length
-        tokens_sec = tokens_generated / t
-        aggregate_metrics['tokens_per_sec'].append(tokens_sec)
-        print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
-        print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
-    print("==========")
-    if is_speculative:
-        counts_aggregated = [sum(i) for i in zip(*aggregate_metrics['accept_counts'])]
-        acceptance_probs = [i/sum(counts_aggregated) for i in counts_aggregated]
-        print(f"Acceptance probs: {acceptance_probs}")
-        print(f"Mean Accepted: {sum([idx * i for idx, i in enumerate(counts_aggregated)])/sum(counts_aggregated)}")
+            # Comment: Don't print as we generate (very) long outputs and we only focus on the speed.
+            # if not interactive:
+            #     print(tokenizer.decode(y.tolist()))
+            # else:
+            #     print()
+            tokens_generated = y.size(0) - prompt_length
+            tokens_sec = tokens_generated / t
+            aggregate_metrics['tokens_per_sec'].append(tokens_sec)
+            print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
+            print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
+        print("==========")
+        if is_speculative:
+            counts_aggregated = [sum(i) for i in zip(*aggregate_metrics['accept_counts'])]
+            acceptance_probs = [i/sum(counts_aggregated) for i in counts_aggregated]
+            print(f"Acceptance probs: {acceptance_probs}")
+            print(f"Mean Accepted: {sum([idx * i for idx, i in enumerate(counts_aggregated)])/sum(counts_aggregated)}")
 
-    print(f"Average tokens/sec: {torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item():.2f}")
-    print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
+        print(f"Average tokens/sec: {torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item():.2f}")
+        print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
 
 
 if __name__ == '__main__':
