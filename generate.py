@@ -356,7 +356,7 @@ def main(
 
     _attn_backend = attn_backend
 
-    for num_new_tokens in [1024, 2048, 4096]:
+    for num_new_tokens in [4096, 1024, 2048, 4096]:
         print("=" * 80)
         print(f"num_new_tokens: {num_new_tokens}")
 
