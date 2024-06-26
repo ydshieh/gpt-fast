@@ -356,7 +356,17 @@ def main(
 
     _attn_backend = attn_backend
 
-    for num_new_tokens in [4096, 1024, 2048, 4096]:
+    all_num_new_tokens = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+    all_num_new_tokens = [x for x in all_num_new_tokens if x <= max_new_tokens]
+    if len(all_num_new_tokens) > 1:
+        all_num_new_tokens = all_num_new_tokens[-1:] + all_num_new_tokens[:-1]
+    
+    result = {}
+    for idx, num_new_tokens in enumerate(all_num_new_tokens):
+
+        key = f"compile_{num_new_tokens}_steps" if idx == 0 else f"decode_{num_new_tokens}_steps"
+        result[key] = []
+
         print("=" * 80)
         print(f"num_new_tokens: {num_new_tokens}")
 
@@ -364,7 +374,7 @@ def main(
             'tokens_per_sec': [],
             'accept_counts': [],
         }
-        start = -2 if compile else 0
+        start = -2 if (compile and idx == 0) else 0
 
         ATTN_BACKENDS = {
             "math": torch.nn.attention.SDPBackend.MATH,
@@ -424,9 +434,11 @@ def main(
                 aggregate_metrics['accept_counts'].append(metrics['accept_counts'])
             if i == -2:
                 print(f"Compilation time (1st time): {time.perf_counter() - t0:.2f} seconds")
+                result[key].append(time.perf_counter() - t0)
                 continue
             if i == -1:
                 print(f"Compilation time (2nd time): {time.perf_counter() - t0:.2f} seconds")
+                result[key].append(time.perf_counter() - t0)
                 continue
             if hasattr(prof, "export_chrome_trace"):
                 if use_tp:
@@ -446,6 +458,9 @@ def main(
             aggregate_metrics['tokens_per_sec'].append(tokens_sec)
             print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
             print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
+
+            result[key].append(t)
+
         print("==========")
         if is_speculative:
             counts_aggregated = [sum(i) for i in zip(*aggregate_metrics['accept_counts'])]
