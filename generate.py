@@ -360,12 +360,14 @@ def main(
     all_num_new_tokens = [x for x in all_num_new_tokens if x <= max_new_tokens]
     if len(all_num_new_tokens) > 1:
         all_num_new_tokens = all_num_new_tokens[-1:] + all_num_new_tokens[:-1]
-    
+
     result = {}
+    result2 = {}
     for idx, num_new_tokens in enumerate(all_num_new_tokens):
 
         key = f"compile_{num_new_tokens}_steps" if idx == 0 else f"decode_{num_new_tokens}_steps"
         result[key] = []
+        result2[key] = {"time": [], "throughput": []}
 
         print("=" * 80)
         print(f"num_new_tokens: {num_new_tokens}")
@@ -460,6 +462,8 @@ def main(
             print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
 
             result[key].append(t)
+            result2[key]["time"].append(t)
+            result2[key]["throughput"].append(tokens_sec)
 
         print("==========")
         if is_speculative:
@@ -470,6 +474,12 @@ def main(
 
         print(f"Average tokens/sec: {torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item():.2f}")
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
+
+        import json
+        with open("result.json", "w") as fp:
+            json.dump(result, fp, indent=4)
+        with open("result_more.json", "w") as fp:
+            json.dump(result2, fp, indent=4)
 
 
 if __name__ == '__main__':
