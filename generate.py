@@ -438,10 +438,12 @@ def main(
             if i == -2:
                 print(f"Compilation time (1st time): {time.perf_counter() - t0:.2f} seconds")
                 result[key].append(time.perf_counter() - t0)
+                result2[key]["time"].append(time.perf_counter() - t0)
                 continue
             if i == -1:
                 print(f"Compilation time (2nd time): {time.perf_counter() - t0:.2f} seconds")
                 result[key].append(time.perf_counter() - t0)
+                result2[key]["time"].append(time.perf_counter() - t0)
                 continue
             if hasattr(prof, "export_chrome_trace"):
                 if use_tp:
