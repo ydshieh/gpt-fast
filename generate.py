@@ -358,8 +358,7 @@ def main(
 
     all_num_new_tokens = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
     all_num_new_tokens = [x for x in all_num_new_tokens if x <= max_new_tokens]
-    if len(all_num_new_tokens) > 1:
-        all_num_new_tokens = all_num_new_tokens[-1:] + all_num_new_tokens[:-1]
+    all_num_new_tokens = all_num_new_tokens[-1:] + all_num_new_tokens[:-1]
 
     result = {}
     result2 = {}
