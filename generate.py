@@ -56,7 +56,7 @@ def sample(logits, temperature: float = 1.0, top_k: Optional[int] = None):
 
 def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> torch.Tensor:
     # input_pos: [B, S]
-    # `dynamic_length_multiple` is not applicable to `prefill`. It only makes sense in `decode_one_token`.
+    # `dynamic_length_multiplier` is not applicable to `prefill`. It only makes sense in `decode_one_token`.
     _length = int(input_pos[-1]) + 1
     logits = model(x, input_pos, _length)
     return sample(logits, **sampling_kwargs)[0]
@@ -67,7 +67,7 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
     logits = model(x, input_pos, _length)
     return sample(logits, **sampling_kwargs)
 
-def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, attn_backend=torch.nn.attention.SDPBackend.MATH, dynamic=False, dynamic_length_multiple=0, **sampling_kwargs):
+def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, attn_backend=torch.nn.attention.SDPBackend.MATH, dynamic=False, dynamic_length_multiplier=0, **sampling_kwargs):
     new_tokens, new_probs = [], []
     # Comment: In `model.py`, we perform dynamic slicing only if `_length > 0`
     prompt_length = int(input_pos)
@@ -76,11 +76,11 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
         # Avoid using `int(input_pos) + 1` inside the for loop to get the full speed
         current_length += 1
         _length = current_length if dynamic else 0
-        # Comment: If `dynamic_length_multiple` is not specified, it behaves as there is no `dynamic slicing` to match
-        # the behavior on `main` branch (where there is no `dynamic_length_multiple` argument).
-        if dynamic_length_multiple > 0:
-            _length = (_length // dynamic_length_multiple + int(_length % dynamic_length_multiple > 0)) * dynamic_length_multiple
-        elif dynamic_length_multiple < 0:
+        # Comment: If `dynamic_length_multiplier` is not specified, it behaves as there is no `dynamic slicing` to match
+        # the behavior on `main` branch (where there is no `dynamic_length_multiplier` argument).
+        if dynamic_length_multiplier > 0:
+            _length = (_length // dynamic_length_multiplier + int(_length % dynamic_length_multiplier > 0)) * dynamic_length_multiplier
+        elif dynamic_length_multiplier < 0:
             _length = model.max_seq_length
 
         with torch.nn.attention.sdpa_kernel([attn_backend]):
@@ -163,7 +163,7 @@ def generate(
     callback = lambda x: x,
     attn_backend = torch.nn.attention.SDPBackend.MATH,
     dynamic: bool = False,
-    dynamic_length_multiple: int = 0,
+    dynamic_length_multiplier: int = 0,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -220,7 +220,7 @@ def generate(
             input_pos = input_pos + num_added
             next_token = next_tokens[-1]
     else:
-        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, num_new_tokens - 1, callback=callback, attn_backend=attn_backend, dynamic=dynamic, dynamic_length_multiple=dynamic_length_multiple, **sampling_kwargs)
+        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, num_new_tokens - 1, callback=callback, attn_backend=attn_backend, dynamic=dynamic, dynamic_length_multiplier=dynamic_length_multiplier, **sampling_kwargs)
         seq[T + 1:] = torch.cat(generated_tokens)
 
     generate_stats = {
@@ -297,7 +297,7 @@ def main(
     device=default_device,
     attn_backend="math",
     dynamic: bool = False,
-    dynamic_length_multiple: int = 0,
+    dynamic_length_multiplier: int = 0,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
@@ -429,7 +429,7 @@ def main(
                     callback=callback,
                     attn_backend=attn_backend,
                     dynamic=dynamic,
-                    dynamic_length_multiple=dynamic_length_multiple,
+                    dynamic_length_multiplier=dynamic_length_multiplier,
                     temperature=temperature,
                     top_k=top_k,
                 )
@@ -502,11 +502,11 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
     parser.add_argument('--attn_backend', type=str, default="math", help='SDPA attention backend name to use')
     parser.add_argument('--dynamic', action='store_true', help='If to use dynamic length.')
-    parser.add_argument('--dynamic_length_multiple', type=int, default=0, help='The multiple to be used for dynamic length computation.')
+    parser.add_argument('--dynamic_length_multiplier', type=int, default=0, help='The multiple to be used for dynamic length computation.')
 
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.num_new_tokens, args.top_k,
         args.temperature, args.checkpoint_path, args.compile, args.compile_prefill, args.profile, args.draft_checkpoint_path,
-        args.speculate_k, args.device, args.attn_backend, args.dynamic, args.dynamic_length_multiple,
+        args.speculate_k, args.device, args.attn_backend, args.dynamic, args.dynamic_length_multiplier,
     )
